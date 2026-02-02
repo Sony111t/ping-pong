@@ -1,0 +1,346 @@
+import os
+import json
+from datetime import datetime, timedelta, timezone
+from pygame import *
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
+SAVE_DIR = os.path.join(BASE_DIR, "saves")
+if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
+
+init();
+mixer.init()
+WIDTH, HEIGHT = 1100, 800
+screen = display.set_mode((WIDTH, HEIGHT))
+display.set_caption("PongLord: Sofia Full Edition")
+clock = time.Clock()
+
+GOLD = (255, 215, 0);
+WHITE = (255, 255, 255);
+BLACK = (0, 0, 0);
+RED = (255, 50, 50);
+GREEN = (50, 255, 50)
+
+
+def get_kyiv_time():
+    return datetime.now(timezone(timedelta(hours=2)))
+
+
+def play_sound(filename):
+    try:
+        path = os.path.join(SOUNDS_DIR, filename)
+        if os.path.exists(path):
+            s = mixer.Sound(path);
+            s.set_volume(0.6);
+            s.play()
+    except:
+        pass
+
+
+try:
+    bg_p = os.path.join(BASE_DIR, 'bg_music.mp3')
+    if os.path.exists(bg_p):
+        mixer.music.load(bg_p);
+        mixer.music.set_volume(0.2);
+        mixer.music.play(-1)
+except:
+    pass
+
+
+def get_default_data():
+    return {"coins": 100, "level": 1, "xp": 0, "max_xp": 100, "curr_p": "255,255,255", "curr_b": "255,255,255",
+            "own_p": ["255,255,255"], "own_b": ["255,255,255"], "promo_used": False,
+            "last_gift_time": "2000-01-01 00:00:00"}
+
+
+def save_game(name, player_data):
+    if name:
+        with open(os.path.join(SAVE_DIR, f"{name.lower()}.json"), "w", encoding="utf-8") as f:
+            json.dump(player_data, f)
+
+
+def load_game(name):
+    path = os.path.join(SAVE_DIR, f"{name.lower()}.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f);
+            default = get_default_data()
+            for key in default:
+                if key not in loaded: loaded[key] = default[key]
+            return loaded
+    return get_default_data()
+
+
+class Button:
+    def __init__(self, text, x, y, w=280, h=60, color=(60, 60, 60)):
+        self.text, self.rect, self.color = text, Rect(x, y, w, h), color
+
+    def draw(self, s):
+        c = (100, 100, 110) if self.rect.collidepoint(mouse.get_pos()) else self.color
+        draw.rect(s, c, self.rect, border_radius=15)
+        draw.rect(s, WHITE, self.rect, 2, border_radius=15)
+        t = font.Font(None, 30).render(self.text, True, WHITE)
+        s.blit(t, t.get_rect(center=self.rect.center))
+
+    def is_clicked(self, e):
+        if e.type == MOUSEBUTTONDOWN and e.button == 1 and self.rect.collidepoint(e.pos):
+            play_sound('ui-pop-up-243471 (mp3cut.net).mp3');
+            return True
+        return False
+
+
+paddles = [
+    {"name": "База", "color": "255,255,255", "price": 0}, {"name": "Неон", "color": "0,255,255", "price": 50},
+    {"name": "Лава", "color": "255,69,0", "price": 100}, {"name": "Смарагд", "color": "50,205,50", "price": 150},
+    {"name": "Золото", "color": "255,215,0", "price": 500}, {"name": "Ніч", "color": "40,40,100", "price": 120},
+    {"name": "Рожевий", "color": "255,105,180", "price": 200}, {"name": "Кібер", "color": "255,0,255", "price": 300},
+    {"name": "М'ята", "color": "170,255,190", "price": 180}, {"name": "Веселка", "color": "255,255,100", "price": 400}
+]
+balls_list = [
+    {"name": "Класик", "color": "255,255,255", "price": 0}, {"name": "Вогонь", "color": "255,0,0", "price": 50},
+    {"name": "Вода", "color": "0,0,255", "price": 50}, {"name": "Магія", "color": "138,43,226", "price": 200},
+    {"name": "Сонце", "color": "255,215,0", "price": 150}, {"name": "Токсик", "color": "173,255,47", "price": 100},
+    {"name": "Лід", "color": "0,255,255", "price": 120}, {"name": "Привид", "color": "200,200,200", "price": 80},
+    {"name": "Космос", "color": "75,0,130", "price": 250}, {"name": "Шоколад", "color": "139,69,19", "price": 60}
+]
+
+player_name = "";
+data = {};
+ui_state = "login";
+shop_tab = "paddles";
+promo_input = ""
+score = 0;
+enemy_score = 0;
+winner_text = ""
+ball_rect = Rect(WIDTH // 2, HEIGHT // 2, 20, 20);
+ball_speed = [8, 8]
+p1_rect = Rect(30, 350, 15, 100);
+p2_rect = Rect(WIDTH - 45, 350, 15, 100)
+game_mode = "bot";
+bot_diff = 7;
+rew_c = 50;
+rew_xp = 50
+
+font_huge = font.Font(None, 110);
+font_mid = font.Font(None, 65);
+font_main = font.Font(None, 35)
+
+img_bg = None
+bg_path = os.path.join(BASE_DIR, '4294820.jpg')
+if os.path.exists(bg_path): img_bg = transform.scale(image.load(bg_path), (WIDTH, HEIGHT))
+
+
+def get_col(c_str): return tuple(map(int, c_str.split(',')))
+
+
+running = True
+while running:
+    if img_bg:
+        screen.blit(img_bg, (0, 0))
+    else:
+        screen.fill((20, 20, 20))
+    overlay = Surface((WIDTH, HEIGHT));
+    overlay.set_alpha(180);
+    overlay.fill(BLACK);
+    screen.blit(overlay, (0, 0))
+
+    events = event.get()
+    now_kyiv = get_kyiv_time()
+
+    for e in events:
+        if e.type == QUIT: save_game(player_name, data); running = False
+
+        if ui_state != "login" and ui_state != "menu":
+            if Button("НАЗАД", 20, 20, 150, 50).is_clicked(e):
+                if ui_state == "diff_select":
+                    ui_state = "modes"
+                elif ui_state == "game":
+                    ui_state = "menu"; score = 0; enemy_score = 0; winner_text = ""
+                else:
+                    ui_state = "menu"
+
+        if ui_state == "login" and e.type == KEYDOWN:
+            if e.key == K_RETURN and player_name.strip():
+                data = load_game(player_name); ui_state = "menu"
+            elif e.key == K_BACKSPACE:
+                player_name = player_name[:-1]
+            else:
+                player_name += e.unicode
+        elif ui_state == "menu":
+            if Button("ГРАТИ", 410, 200).is_clicked(e): ui_state = "modes"; score = 0; enemy_score = 0; winner_text = ""
+            if Button("МАГАЗИН", 410, 280).is_clicked(e): ui_state = "shop"
+            if Button("ПРОФІЛЬ", 410, 360).is_clicked(e): ui_state = "profile"
+            # КНОПКА ВИЙТИ ТЕПЕР ВИЩЕ
+            if Button("ВИЙТИ", 410, 440, color=(150, 0, 0)).is_clicked(e): running = False
+
+        elif ui_state == "modes":
+            if Button("З БОТОМ", 410, 300).is_clicked(e): ui_state = "diff_select"
+            if Button("З ГРАВЦЕМ", 410, 380).is_clicked(
+                e): ui_state = "game"; game_mode = "player"; rew_c = 100; rew_xp = 60
+        elif ui_state == "diff_select":
+            if Button("ЛЕГКО", 410, 200, color=(0, 100, 0)).is_clicked(
+                e): ui_state = "game"; bot_diff = 5; rew_c = 50; rew_xp = 50
+            if Button("СЕРЕДНЬО", 410, 280, color=(100, 100, 0)).is_clicked(
+                e): ui_state = "game"; bot_diff = 8; rew_c = 120; rew_xp = 70
+            if Button("СКЛАДНО", 410, 360, color=(150, 0, 0)).is_clicked(
+                e): ui_state = "game"; bot_diff = 12; rew_c = 170; rew_xp = 100
+        elif ui_state == "shop":
+            if Button("РАКЕТКИ", 150, 50, 250, 50).is_clicked(e): shop_tab = "paddles"
+            if Button("М'ЯЧІ", 420, 50, 250, 50).is_clicked(e): shop_tab = "balls"
+            if Button("БОНУС", 690, 50, 250, 50).is_clicked(e): shop_tab = "bonus"
+
+            if shop_tab == "bonus":
+                if e.type == KEYDOWN:
+                    if e.key == K_BACKSPACE:
+                        promo_input = promo_input[:-1]
+                    else:
+                        promo_input += e.unicode
+
+                btn_act = Button("АКТИВУВАТИ", WIDTH // 2 - 140, 400)
+                if btn_act.is_clicked(e):
+                    if promo_input == "Logika" and not data.get("promo_used"):
+                        data["coins"] += 1000;
+                        data["promo_used"] = True;
+                        promo_input = "УСПІХ!";
+                        save_game(player_name, data)
+
+                last_gift = datetime.strptime(data["last_gift_time"], "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=timezone(timedelta(hours=2)))
+                if now_kyiv >= last_gift + timedelta(hours=24):
+                    if Button("ЗАБРАТИ ПОДАРУНОК", WIDTH // 2 - 140, 500, color=GREEN).is_clicked(e):
+                        data["coins"] += 250
+                        data["last_gift_time"] = now_kyiv.strftime("%Y-%m-%d %H:%M:%S")
+                        save_game(player_name, data)
+
+            elif shop_tab != "bonus" and e.type == MOUSEBUTTONDOWN:
+                cur_l = paddles if shop_tab == "paddles" else balls_list
+                ok, ck = ("own_p", "curr_p") if shop_tab == "paddles" else ("own_b", "curr_b")
+                for i, it in enumerate(cur_l):
+                    if Rect(80 + (i % 2) * 480, 120 + (i // 2) * 110, 450, 95).collidepoint(e.pos):
+                        if it["color"] in data[ok]:
+                            data[ck] = it["color"]
+                        elif data["coins"] >= it["price"]:
+                            data["coins"] -= it["price"]; data[ok].append(it["color"]); data[ck] = it["color"]
+                        save_game(player_name, data)
+        elif ui_state == "game":
+            if winner_text:
+                if Button("ГРАТИ ЗНОВУ", 410, 450).is_clicked(e): score = 0; enemy_score = 0; winner_text = ""
+                if Button("В МЕНЮ", 410, 530).is_clicked(e): ui_state = "menu"
+
+    if ui_state == "game" and not winner_text:
+        ball_rect.x += ball_speed[0];
+        ball_rect.y += ball_speed[1]
+        if ball_rect.top <= 0 or ball_rect.bottom >= HEIGHT: ball_speed[1] *= -1
+        if ball_rect.colliderect(p1_rect) or ball_rect.colliderect(p2_rect):
+            ball_speed[0] *= -1.05;
+            play_sound('tennis-ball-hit-151257.mp3')
+        if ball_rect.left < 0: enemy_score += 1; ball_rect.center = (WIDTH // 2, HEIGHT // 2); ball_speed = [8, 8]
+        if ball_rect.right > WIDTH: score += 1; ball_rect.center = (WIDTH // 2, HEIGHT // 2); ball_speed = [-8, 8]
+        if score >= 10:
+            winner_text = f"ПЕРЕМОГА: {player_name.upper()}"
+            data["xp"] += rew_xp;
+            data["coins"] += rew_c
+            while data["xp"] >= data["max_xp"]: data["level"] += 1; data["xp"] -= data["max_xp"]; data["max_xp"] += 50
+            save_game(player_name, data)
+        elif enemy_score >= 10:
+            winner_text = "БОТ ПЕРЕМІГ"
+        ks = key.get_pressed()
+        if ks[K_w] and p1_rect.top > 0: p1_rect.y -= 10
+        if ks[K_s] and p1_rect.bottom < HEIGHT: p1_rect.y += 10
+        if game_mode == "bot":
+            if p2_rect.centery < ball_rect.centery:
+                p2_rect.y += bot_diff
+            else:
+                p2_rect.y -= bot_diff
+        elif ks[K_UP] and p2_rect.top > 0:
+            p2_rect.y -= 10
+        elif ks[K_DOWN] and p2_rect.bottom < HEIGHT:
+            p2_rect.y += 10
+
+    if ui_state == "login":
+        screen.blit(font_huge.render("PongLord", True, GOLD), (WIDTH // 2 - 180, 250))
+        screen.blit(font_main.render(f"Введіть ім'я: {player_name}_", True, WHITE), (WIDTH // 2 - 120, 420))
+    elif ui_state == "menu":
+        screen.blit(font_huge.render("PongLord", True, GOLD), (WIDTH // 2 - 180, 80))
+        Button("ГРАТИ", 410, 200).draw(screen)
+        Button("МАГАЗИН", 410, 280).draw(screen)
+        Button("ПРОФІЛЬ", 410, 360).draw(screen)
+        Button("ВИЙТИ", 410, 440, color=(150, 0, 0)).draw(screen)
+    elif ui_state == "modes":
+        Button("З БОТОМ", 410, 300).draw(screen);
+        Button("З ГРАВЦЕМ", 410, 380).draw(screen);
+        Button("НАЗАД", 20, 20, 150, 50).draw(screen)
+    elif ui_state == "diff_select":
+        Button("ЛЕГКО", 410, 200, color=(0, 100, 0)).draw(screen);
+        Button("СЕРЕДНЬО", 410, 280, color=(100, 100, 0)).draw(screen);
+        Button("СКЛАДНО", 410, 360, color=(150, 0, 0)).draw(screen);
+        Button("НАЗАД", 20, 20, 150, 50).draw(screen)
+    elif ui_state == "shop":
+        Button("РАКЕТКИ", 150, 50, 250, 50).draw(screen);
+        Button("М'ЯЧІ", 420, 50, 250, 50).draw(screen);
+        Button("БОНУС", 690, 50, 250, 50).draw(screen)
+        screen.blit(font_main.render(f"Монети: {data.get('coins')}", True, GOLD), (900, 20))
+        if shop_tab == "bonus":
+            screen.blit(font_mid.render("ПРОМОКОД: Logika", True, GOLD), (WIDTH // 2 - 180, 160))
+            draw.rect(screen, (40, 40, 40), (WIDTH // 2 - 150, 300, 300, 60), border_radius=10)
+            screen.blit(font_mid.render(promo_input + "_", True, WHITE), (WIDTH // 2 - 130, 305))
+            Button("АКТИВУВАТИ", WIDTH // 2 - 140, 400).draw(screen)
+
+            last_gift = datetime.strptime(data["last_gift_time"], "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone(timedelta(hours=2)))
+            next_gift = last_gift + timedelta(hours=24)
+            if now_kyiv >= next_gift:
+                Button("ЗАБРАТИ ПОДАРУНОК", WIDTH // 2 - 140, 500, color=GREEN).draw(screen)
+            else:
+                diff = next_gift - now_kyiv
+                timer_txt = str(diff).split(".")[0]
+                screen.blit(font_main.render(f"До подарунка: {timer_txt}", True, RED), (WIDTH // 2 - 110, 520))
+        else:
+            cur_l = paddles if shop_tab == "paddles" else balls_list
+            ck, ok = ("curr_p", "own_p") if shop_tab == "paddles" else ("own_b", "curr_b")
+            for i, it in enumerate(cur_l):
+                x, y = 80 + (i % 2) * 480, 120 + (i // 2) * 110
+                r = Rect(x, y, 450, 95);
+                draw.rect(screen, (50, 50, 55), r, border_radius=12)
+                if data.get(ck) == it["color"]: draw.rect(screen, GOLD, r, 3, border_radius=12)
+                if shop_tab == "paddles":
+                    draw.rect(screen, get_col(it["color"]), (x + 15, y + 20, 20, 55))
+                else:
+                    draw.circle(screen, get_col(it["color"]), (x + 25, y + 47), 18)
+                screen.blit(font_main.render(it["name"], True, WHITE), (x + 70, y + 35))
+                p_txt = "ОБРАНО" if data.get(ck) == it["color"] else (
+                    "КУПЛЕНО" if it["color"] in data.get(ok, []) else f"Ціна: {it['price']}")
+                screen.blit(font_main.render(p_txt, True, GOLD), (x + 260, y + 35))
+        Button("НАЗАД", 20, 20, 150, 50).draw(screen)
+    elif ui_state == "game":
+        draw.rect(screen, get_col(data.get("curr_p")), p1_rect);
+        draw.rect(screen, RED, p2_rect)
+        draw.circle(screen, get_col(data.get("curr_b")), ball_rect.center, 15)
+        screen.blit(font_mid.render(f"{score} : {enemy_score}", True, WHITE), (WIDTH // 2 - 50, 20))
+        if winner_text:
+            s_win = Surface((WIDTH, HEIGHT));
+            s_win.set_alpha(200);
+            s_win.fill(BLACK);
+            screen.blit(s_win, (0, 0))
+            txt = font_huge.render(winner_text, True, GREEN if "ПЕРЕМОГА" in winner_text else RED)
+            screen.blit(txt, (WIDTH // 2 - txt.get_width() // 2, 300))
+            Button("ГРАТИ ЗНОВУ", 410, 450).draw(screen);
+            Button("В МЕНЮ", 410, 530).draw(screen)
+        else:
+            Button("НАЗАД", 20, 20, 150, 50).draw(screen)
+    elif ui_state == "profile":
+        box = Rect(WIDTH // 2 - 300, 200, 600, 400);
+        draw.rect(screen, (30, 30, 45), box, border_radius=20);
+        draw.rect(screen, GOLD, box, 10, border_radius=20)
+        screen.blit(font_mid.render(player_name.upper(), True, WHITE), (WIDTH // 2 - 100, 250))
+        xp_p = data.get('xp', 0) / data.get('max_xp', 100)
+        draw.rect(screen, BLACK, (WIDTH // 2 - 202, 438, 404, 34), border_radius=15);
+        draw.rect(screen, GREEN, (WIDTH // 2 - 200, 440, xp_p * 400, 30), border_radius=15)
+        screen.blit(
+            font_main.render(f"LVL {data.get('level')} | {data.get('xp')}/{data.get('max_xp')} XP", True, WHITE),
+            (WIDTH // 2 - 80, 480))
+        Button("НАЗАД", 20, 20, 150, 50).draw(screen)
+
+    display.update();
+    clock.tick(60)
+quit()
