@@ -1,0 +1,47 @@
+import socket
+import threading
+
+HOST = "0.0.0.0"
+PORT = 8080
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+try:
+    server.bind((HOST, PORT))
+    server.listen(2)
+    print(f"--- СЕРВЕР ЗАПУЩЕН ---")
+    print(f"IP: {HOST}, PORT: {PORT}")
+    print("Ожидание игроков...")
+except OSError as e:
+    print(f"ОШИБКА: Порт {PORT} уже занят!")
+    print("Закрой все старые окна сервера (нажми Stop в PyCharm).")
+    exit()
+
+clients = []
+
+
+def handle_client(conn, addr):
+    print(f"[НОВОЕ ПОДКЛЮЧЕНИЕ] {addr} вошел в игру.")
+    while True:
+        try:
+            data = conn.recv(1024).decode('utf-8')
+            if not data:
+                break
+
+            for client in clients:
+                if client != conn:
+                    client.send(data.encode('utf-8'))
+        except:
+            break
+
+    print(f"[ОТКЛЮЧЕНИЕ] {addr} покинул игру.")
+    clients.remove(conn)
+    conn.close()
+
+
+while True:
+    conn, addr = server.accept()
+    clients.append(conn)
+    thread = threading.Thread(target=handle_client, args=(conn, addr))
+    thread.start()
